@@ -165,7 +165,7 @@ This project provides practical experience in connecting Python applications to 
 
 Computer Science and Design | B.Tech
 
-GitHub: https://github.com/codesniper123
+GitHub: https://github.com/Manikantaiah-jangam
 
 ## License
 
