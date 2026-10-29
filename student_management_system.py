@@ -1,150 +1,224 @@
 
+from decimal import Decimal, InvalidOperation
+
 import mysql.connector
 
-# 1. Connect to MySQL
-try:
-    con = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="Mani@3810#45",
-        database="college",
-        port=3306
-    )
-
-    cur = con.cursor()
-
-    # 2. Create the table if it does not exist
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            id INT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            marks DECIMAL(5, 2) NOT NULL
-        )
-    """)
-
-    con.commit()
-    print("Connected to MySQL successfully!")
-
-except mysql.connector.Error as err:
-    print("Database connection error:", err)
-    raise SystemExit(1)
+from db import get_connection
 
 
-# 3. Insert a student
 def insert_student():
+    con = None
+
     try:
         student_id = int(input("Enter student ID: "))
         name = input("Enter student name: ").strip()
-        marks = float(input("Enter marks: "))
+        marks = Decimal(input("Enter marks: "))
+
+        if student_id <= 0:
+            print("Student ID must be positive.")
+            return
 
         if not name:
             print("Name cannot be empty.")
             return
 
-        if not 0 <= marks <= 100:
+        if not marks.is_finite() or not Decimal("0") <= marks <= Decimal("100"):
             print("Marks must be between 0 and 100.")
             return
 
-        cur.execute(
-            "INSERT INTO students (id, name, marks) VALUES (%s, %s, %s)",
-            (student_id, name, marks)
-        )
+        con = get_connection()
+
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO students (id, name, marks)
+                VALUES (%s, %s, %s)
+                """,
+                (student_id, name, marks)
+            )
 
         con.commit()
         print("Student inserted successfully!")
 
-    except (ValueError, mysql.connector.Error) as err:
-        con.rollback()
+    except (ValueError, InvalidOperation) as err:
+        print("Invalid input:", err)
+
+    except mysql.connector.Error as err:
+        if con is not None and con.is_connected():
+            con.rollback()
         print("Insert error:", err)
 
+    finally:
+        if con is not None and con.is_connected():
+            con.close()
 
-# 4. Display all students
+
 def display_students():
-    cur.execute("SELECT * FROM students ORDER BY id")
-    rows = cur.fetchall()
-
-    if not rows:
-        print("No student records found.")
-        return
-
-    for row in rows:
-        print(row)
-
-
-# 5. Search for a student
-def search_student():
-    student_id = input("Enter student ID to search: ")
+    con = None
 
     try:
-        student_id = int(student_id)
+        con = get_connection()
+
+        with con.cursor() as cur:
+            cur.execute("SELECT id, name, marks FROM students ORDER BY id")
+            rows = cur.fetchall()
+
+        if not rows:
+            print("No student records found.")
+            return
+
+        for row in rows:
+            print(row)
+
+    except mysql.connector.Error as err:
+        print("Display error:", err)
+
+    finally:
+        if con is not None and con.is_connected():
+            con.close()
+
+
+def search_student():
+    try:
+        student_id = int(input("Enter student ID to search: "))
     except ValueError:
         print("Enter a valid integer ID.")
         return
 
-    cur.execute(
-        "SELECT * FROM students WHERE id = %s",
-        (student_id,)
-    )
+    con = None
 
-    row = cur.fetchone()
+    try:
+        con = get_connection()
 
-    if row:
-        print("Student found:", row)
-    else:
-        print("Student not found.")
+        with con.cursor() as cur:
+            cur.execute(
+                "SELECT id, name, marks FROM students WHERE id = %s",
+                (student_id,)
+            )
+            row = cur.fetchone()
+
+        if row:
+            print("Student found:", row)
+        else:
+            print("Student not found.")
+
+    except mysql.connector.Error as err:
+        print("Search error:", err)
+
+    finally:
+        if con is not None and con.is_connected():
+            con.close()
 
 
-# 6. Update student marks
 def update_student():
+    con = None
+
     try:
         student_id = int(input("Enter student ID: "))
-        marks = float(input("Enter new marks: "))
+        marks = Decimal(input("Enter new marks: "))
 
-        if not 0 <= marks <= 100:
+        if not marks.is_finite() or not Decimal("0") <= marks <= Decimal("100"):
             print("Marks must be between 0 and 100.")
             return
 
-        cur.execute(
-            "UPDATE students SET marks = %s WHERE id = %s",
-            (marks, student_id)
-        )
+        con = get_connection()
+
+        with con.cursor() as cur:
+            cur.execute(
+                "UPDATE students SET marks = %s WHERE id = %s",
+                (marks, student_id)
+            )
+            affected = cur.rowcount
 
         con.commit()
 
-        if cur.rowcount:
-            print("Student marks updated!")
+        if affected:
+            print("Student marks updated successfully!")
         else:
-            print("Student ID not found.")
+            print("Student not found or marks unchanged.")
 
-    except (ValueError, mysql.connector.Error) as err:
-        con.rollback()
+    except (ValueError, InvalidOperation) as err:
+        print("Invalid input:", err)
+
+    except mysql.connector.Error as err:
+        if con is not None and con.is_connected():
+            con.rollback()
         print("Update error:", err)
 
+    finally:
+        if con is not None and con.is_connected():
+            con.close()
 
-# 7. Delete a student
+
 def delete_student():
+    con = None
+
     try:
         student_id = int(input("Enter student ID to delete: "))
+        confirmation = input(
+            f"Delete student ID {student_id}? (yes/no): "
+        ).strip().lower()
 
-        cur.execute(
-            "DELETE FROM students WHERE id = %s",
-            (student_id,)
-        )
+        if confirmation != "yes":
+            print("Deletion cancelled.")
+            return
+
+        con = get_connection()
+
+        with con.cursor() as cur:
+            cur.execute(
+                "DELETE FROM students WHERE id = %s",
+                (student_id,)
+            )
+            affected = cur.rowcount
 
         con.commit()
 
-        if cur.rowcount:
+        if affected:
             print("Student deleted successfully!")
         else:
             print("Student ID not found.")
 
-    except (ValueError, mysql.connector.Error) as err:
-        con.rollback()
+    except ValueError:
+        print("Enter a valid integer ID.")
+
+    except mysql.connector.Error as err:
+        if con is not None and con.is_connected():
+            con.rollback()
         print("Delete error:", err)
 
+    finally:
+        if con is not None and con.is_connected():
+            con.close()
 
-# 8. Menu-driven application
-try:
+
+def main():
+    # Ensure the expected table exists.
+    con = None
+
+    try:
+        con = get_connection()
+
+        with con.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS students (
+                    id INT PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    marks DECIMAL(5, 2) NOT NULL
+                )
+            """)
+
+        con.commit()
+        print("MySQL connected successfully!")
+
+    except (mysql.connector.Error, ValueError) as err:
+        print("Database setup failed:", err)
+        return
+
+    finally:
+        if con is not None and con.is_connected():
+            con.close()
+
     while True:
         print("""
 ===== STUDENT MANAGEMENT =====
@@ -169,15 +243,11 @@ try:
         elif choice == "5":
             delete_student()
         elif choice == "6":
-            print("Exiting application...")
+            print("Exiting application.")
             break
         else:
             print("Invalid choice. Select 1 to 6.")
 
-except mysql.connector.Error as err:
-    print("Database error:", err)
 
-finally:
-    cur.close()
-    con.close()
-    print("Database connection closed.")
+if __name__ == "__main__":
+    main()
